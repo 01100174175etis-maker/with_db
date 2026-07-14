@@ -1,0 +1,67 @@
+# قاعدة البيانات
+sales.db
+*.db
+
+# ملفات الفواتير
+invoices/
+*.txt
+
+# ملفات Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# بيئات الافتراضية
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ملفات IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ملفات النظام
+.DS_Store
+Thumbs.db
+
+# ملفات السجلات
+*.log
+logs/
+
+# ملفات التصدير
+*.xlsx
+exports/
+
+# ملفات مؤقتة
+*.tmp
+*.temp
+.cache/
+
+# ملفات توليد الأرقام العشوائية
+.pytest_cache/
+.coverage
+htmlcov/
