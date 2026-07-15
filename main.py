@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import sys
+import traceback
 
 # --- حل مشكلة المسار تلقائيًا لضمان استقرار استدعاء الموديلات ---
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -433,7 +434,7 @@ class SalesApp(QMainWindow):
         confirm_second = QMessageBox.critical(
             self,
             "🔴 تأكيد نهائي - لا يمكن التراجع!",
-            "هذه عملية نهائية ولا يمكن التراجع عنها!\n\nاكتب الكلمة: DELETE\n\nللتأكيد على حذف جميع البيانات",
+            "هذه عملية نهائية ولا يمكن التراجع عنها!\n\nسيتم حذف جميع البيانات المسجلة",
             QMessageBox.Yes | QMessageBox.No
         )
         
@@ -530,50 +531,105 @@ class SalesApp(QMainWindow):
             self.set_status(f"خطأ في التصدير: {str(e)}")
 
     def export_all_customers_unified_excel(self):
-        all_sales_df = db.get_sales()
-        if all_sales_df.empty:
-            QMessageBox.warning(self, "تنبيه", "لا توجد أي بيانات حالية لتصديرها.")
-            return
-            
-        path, _ = QFileDialog.getSaveFileName(self, "تصدير السجل الموحد", "دفتر_الأستاذ_الموحد.xlsx", "Excel files (*.xlsx)")
-        if not path:
-            return
-
+        """تصدير شامل مع معالجة دقيقة للأخطاء"""
         try:
-            summary_data = []
-            grouped_all = all_sales_df.groupby("customer")
-            for customer_name, group in grouped_all:
-                summary_data.append({
-                    "اسم العميل": str(customer_name),
-                    "إجمالي الفواتير (جنيه)": group["total"].sum(),
-                    "عدد أنواع المنتجات": group["item"].nunique()
-                })
-            summary_df = pd.DataFrame(summary_data)
+            all_sales_df = db.get_sales()
+            if all_sales_df.empty:
+                QMessageBox.warning(self, "تنبيه", "لا توجد أي بيانات حالية لتصديرها.")
+                return
+                
+            path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "تصدير السجل الموحد", 
+                "دفتر_الأستاذ_الموحد.xlsx", 
+                "Excel files (*.xlsx)"
+            )
+            
+            if not path:
+                self.set_status("تم إلغاء عملية التصدير.")
+                return
 
-            # حذف الملف إذا كان موجوداً
+            # التحقق من أن الملف موجود ومحاولة حذفه
             if os.path.exists(path):
                 try:
                     os.remove(path)
-                except OSError:
+                except PermissionError:
                     QMessageBox.critical(
                         self,
-                        "❌ ملف مفتوح",
-                        "برجاء إغلاق ملف الإكسل الموحد أولاً قبل محاولة تحديثه."
+                        "❌ خطأ في الأذونات",
+                        "الملف مفتوح في برنامج آخر. برجاء إغلاقه أولاً ثم حاول مرة أخرى."
                     )
                     self.set_status("فشل التصدير: الملف مفتوح في برنامج آخر.")
                     return
+                except Exception as e:
+                    QMessageBox.critical(
+                        self,
+                        "❌ خطأ في حذف الملف",
+                        f"لا يمكن حذف الملف القديم:\n\n{str(e)}"
+                    )
+                    self.set_status(f"خطأ في حذف الملف: {str(e)}")
+                    return
 
-            # إنشاء ملف Excel
+            # إنشاء الملف والبيانات
+            summary_data = []
+            grouped_all = all_sales_df.groupby("customer")
+            
+            for customer_name, group in grouped_all:
+                summary_data.append({
+                    "اسم العميل": str(customer_name),
+                    "إجمالي الفواتير (جنيه)": float(group["total"].sum()),
+                    "عدد أنواع المنتجات": int(group["item"].nunique())
+                })
+            
+            summary_df = pd.DataFrame(summary_data)
+
+            # كتابة ملف Excel مع معالجة الأخطاء
             with pd.ExcelWriter(path, engine="openpyxl") as writer:
                 summary_df.to_excel(writer, sheet_name="مختصر العملاء", index=False)
+                
                 for customer_name, group in grouped_all:
-                    safe_sheet_name = "".join(c for c in str(customer_name) if c.isalnum() or c in (" ", "_", "-"))[:30].strip()
+                    # إنشاء اسم آمن للورقة
+                    safe_sheet_name = "".join(
+                        c for c in str(customer_name) 
+                        if c.isalnum() or c in (" ", "_", "-")
+                    )[:30].strip()
+                    
                     if not safe_sheet_name:
                         safe_sheet_name = "عميل"
+                    
                     detailed_df = group.rename(columns=self.headers_ar)
                     detailed_df.to_excel(writer, sheet_name=safe_sheet_name, index=False)
 
-            # تنسيق الملف
+            # تنسيق الملف بعد الإنشاء
+            self.format_excel_file(path)
+
+            QMessageBox.information(
+                self,
+                "✅ عملية ناجحة",
+                f"تم تحديث دفتر الأستاذ الموحد بنجاح!\n\nالموقع: {path}"
+            )
+            self.set_status("تم استخراج وتنسيق ملف السجل الموحد بنجاح.")
+            
+        except PermissionError as pe:
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في الأذونات",
+                f"لا توجد أذونات كافية للكتابة في هذا الموقع:\n\n{str(pe)}"
+            )
+            self.set_status("خطأ: لا توجد أذونات كافية للكتابة.")
+            
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}"
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في التصدير",
+                f"فشلت عملية التصدير:\n\n{error_msg}"
+            )
+            self.set_status(f"خطأ في التصدير: {str(e)}")
+
+    def format_excel_file(self, path):
+        """تنسيق ملف Excel بعد إنشاؤه"""
+        try:
             wb = load_workbook(path)
             header_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
             header_font = XlFont(name="Calibri", size=14, bold=True, color="000000")
@@ -584,55 +640,45 @@ class SalesApp(QMainWindow):
 
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
+                
+                # تنسيق الخلايا
                 for col in ws.columns:
                     for cell in col:
                         cell.fill = header_fill
                         if cell.row == 1:
                             cell.font = header_font
                         else:
-                            if sheet_name == "مختصر العملاء" and cell.column == 1:
-                                pass
-                            else:
-                                cell.font = regular_font
+                            cell.font = regular_font
                         cell.alignment = center_align
                         cell.border = cell_border
                 
+                # تعديل عرض الأعمدة
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col.column)
                     ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
 
-            ws_summary = wb["مختصر العملاء"]
-            for row_idx in range(2, ws_summary.max_row + 1):
-                cell = ws_summary.cell(row=row_idx, column=1)
-                customer_sheet_name = "".join(c for c in str(cell.value) if c.isalnum() or c in (" ", "_", "-"))[:30].strip()
-                if customer_sheet_name:
-                    cell.hyperlink = f"#'{customer_sheet_name}'!A1"
-                    cell.font = XlFont(color="0000FF", underline="single", name="Calibri", size=12, bold=True)
+            # إضافة الروابط
+            if "مختصر العملاء" in wb.sheetnames:
+                ws_summary = wb["مختصر العملاء"]
+                for row_idx in range(2, ws_summary.max_row + 1):
+                    cell = ws_summary.cell(row=row_idx, column=1)
+                    customer_sheet_name = "".join(
+                        c for c in str(cell.value) 
+                        if c.isalnum() or c in (" ", "_", "-")
+                    )[:30].strip()
+                    
+                    if customer_sheet_name:
+                        try:
+                            cell.hyperlink = f"#'{customer_sheet_name}'!A1"
+                            cell.font = XlFont(color="0000FF", underline="single", name="Calibri", size=12, bold=True)
+                        except:
+                            pass
             
             wb.save(path)
-            QMessageBox.information(
-                self,
-                "✅ عملية ناجحة",
-                f"تم تحديث دفتر الأستاذ الموحد بنجاح!\n\nالموقع: {path}"
-            )
-            self.set_status("تم استخراج وتنسيق ملف السجل الموحد بنجاح.")
-            
-        except PermissionError:
-            QMessageBox.critical(
-                self,
-                "❌ خطأ في الأذونات",
-                "لا توجد أذونات كافية لإنشاء الملف. تأكد من وجود صلاحيات الكتابة."
-            )
-            self.set_status("خطأ: لا توجد أذونات كافية للكتابة.")
             
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "❌ خطأ في التصدير",
-                f"فشلت عملية التصدير:\n\n{str(e)}"
-            )
-            self.set_status(f"خطأ في التصدير: {str(e)}")
+            print(f"تحذير: خطأ في تنسيق الملف: {e}")
 
 
 def main():
