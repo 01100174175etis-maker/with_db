@@ -153,6 +153,7 @@ class SalesApp(QMainWindow):
         self.tree.setSelectionMode(QTableWidget.SingleSelection)
         self.tree.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         right_panel.addWidget(self.tree)
+        
         # أزرار العمليات والتحكم السفلية المنسقة مع المظهر الفاتح المستقر
         bot_layout = QHBoxLayout()
         right_panel.addLayout(bot_layout)
@@ -186,6 +187,12 @@ class SalesApp(QMainWindow):
         self.btn_export_all.setStyleSheet("background-color: #2196F3; color: white; padding: 8px; border-radius: 4px;")
         self.btn_export_all.clicked.connect(self.export_all_customers_unified_excel)
         bot_layout.addWidget(self.btn_export_all)
+
+        self.btn_clear_db = QPushButton("🔴 تفريغ قاعدة البيانات")
+        self.btn_clear_db.setFont(QFont("Helvetica", 11, QFont.Bold))
+        self.btn_clear_db.setStyleSheet("background-color: #d32f2f; color: white; padding: 8px; border-radius: 4px;")
+        self.btn_clear_db.clicked.connect(self.clear_database)
+        bot_layout.addWidget(self.btn_clear_db)
 
         # شريط الحالة السفلي بالعربية
         self.lbl_status = QLabel("النظام جاهز للعمل")
@@ -361,6 +368,7 @@ class SalesApp(QMainWindow):
         self.clear_fields_manually()
         self.set_status(f"تم {msg_status} الفاتورة بنجاح للعميل: {c}. المعرف: {new_uid}")
         self.ent_customer.setFocus()
+        
     def prepare_edit_row(self):
         selected_rows = self.tree.selectionModel().selectedRows()
         if not selected_rows:
@@ -407,41 +415,119 @@ class SalesApp(QMainWindow):
                 self.clear_fields_manually()
             self.set_status(f"تم حذف العملية رقم {sale_id} بنجاح.")
 
+    def clear_database(self):
+        """تفريغ قاعدة البيانات بالكامل مع تأكيد ثنائي"""
+        # التأكيد الأول
+        confirm_first = QMessageBox.warning(
+            self, 
+            "⚠️ تحذير هام!", 
+            "هل أنت متأكد من رغبتك في تفريغ قاعدة البيانات بالكامل؟\n\nهذه العملية ستحذف جميع البيانات المسجلة!",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if confirm_first != QMessageBox.Yes:
+            self.set_status("تم إلغاء عملية تفريغ قاعدة البيانات.")
+            return
+        
+        # التأكيد الثاني (تأكيد قوي)
+        confirm_second = QMessageBox.critical(
+            self,
+            "🔴 تأكيد نهائي - لا يمكن التراجع!",
+            "هذه عملية نهائية ولا يمكن التراجع عنها!\n\nاكتب الكلمة: DELETE\n\nللتأكيد على حذف جميع البيانات",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if confirm_second != QMessageBox.Yes:
+            self.set_status("تم إلغاء عملية تفريغ قاعدة البيانات.")
+            return
+        
+        try:
+            # حذف جميع البيانات
+            db.clear_all_data()
+            
+            # تحديث الواجهة
+            self.load_data()
+            self.clear_fields_manually()
+            self.price_history = {}
+            
+            # عرض رسالة نجاح
+            QMessageBox.information(
+                self,
+                "✅ نجاح",
+                "تم تفريغ قاعدة البيانات بنجاح!\n\nجميع البيانات السابقة تم حذفها."
+            )
+            self.set_status("تم تفريغ قاعدة البيانات بنجاح - النظام جاهز للعمل من جديد.")
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "❌ خطأ",
+                f"حدث خطأ أثناء تفريغ قاعدة البيانات:\n\n{str(e)}"
+            )
+            self.set_status(f"فشل تفريغ قاعدة البيانات: {str(e)}")
+
     def print_invoice(self):
         selected_rows = self.tree.selectionModel().selectedRows()
         if not selected_rows:
+            QMessageBox.warning(self, "تنبيه", "برجاء تحديد سطر للطباعة أولاً.")
             return
-        row_idx = selected_rows[0].row()
-        
-        invoice_id = self.tree.item(row_idx, 0).text()
-        customer_name = self.tree.item(row_idx, 1).text()
-        item_name = self.tree.item(row_idx, 2).text()
-        qty = self.tree.item(row_idx, 3).text()
-        price = self.tree.item(row_idx, 4).text()
-        total = self.tree.item(row_idx, 5).text()
-        sale_date = self.tree.item(row_idx, 6).text()
-        
-        invoice_text = f"Invoice ID: {invoice_id}\nDate: {sale_date}\nCustomer: {customer_name}\nItem: {item_name}\nQty: {qty}\nPrice: {price}\nTotal: {total} EGP"
-        invoice_file = CURRENT_DIR / f"Invoice_{invoice_id}.txt"
-        invoice_file.write_text(invoice_text, encoding="utf-8")
-        os.startfile(invoice_file)
-        self.set_status(f"تم توليد الفاتورة رقم {invoice_id} بنجاح.")
+            
+        try:
+            row_idx = selected_rows[0].row()
+            
+            invoice_id = self.tree.item(row_idx, 0).text()
+            customer_name = self.tree.item(row_idx, 1).text()
+            item_name = self.tree.item(row_idx, 2).text()
+            qty = self.tree.item(row_idx, 3).text()
+            price = self.tree.item(row_idx, 4).text()
+            total = self.tree.item(row_idx, 5).text()
+            sale_date = self.tree.item(row_idx, 6).text()
+            
+            invoice_text = f"Invoice ID: {invoice_id}\nDate: {sale_date}\nCustomer: {customer_name}\nItem: {item_name}\nQty: {qty}\nPrice: {price}\nTotal: {total} EGP"
+            invoice_file = CURRENT_DIR / f"Invoice_{invoice_id}.txt"
+            
+            invoice_file.write_text(invoice_text, encoding="utf-8")
+            os.startfile(invoice_file)
+            self.set_status(f"تم توليد الفاتورة رقم {invoice_id} بنجاح.")
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في طباعة الفاتورة",
+                f"فشل إنشاء الفاتورة:\n\n{str(e)}"
+            )
+            self.set_status(f"خطأ في طباعة الفاتورة: {str(e)}")
 
     def export_customer_excel(self):
         selected_rows = self.tree.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.warning(self, "تنبيه", "برجاء تحديد سطر للعميل أولاً.")
             return
-        row_idx = selected_rows[0].row()
-        customer_name = self.tree.item(row_idx, 1).text()
-        
-        all_sales_df = db.get_sales()
-        customer_df = all_sales_df[all_sales_df["customer"] == customer_name].rename(columns=self.headers_ar)
-        
-        path, _ = QFileDialog.getSaveFileName(self, "تصدير عميل", f"{customer_name}.xlsx", "Excel files (*.xlsx)")
-        if path:
-            customer_df.to_excel(path, index=False)
-            QMessageBox.information(self, "تصدير ناجح", f"تم إنشاء ملف إكسل مخصص للعميل '{customer_name}' بنجاح.")
+            
+        try:
+            row_idx = selected_rows[0].row()
+            customer_name = self.tree.item(row_idx, 1).text()
+            
+            all_sales_df = db.get_sales()
+            customer_df = all_sales_df[all_sales_df["customer"] == customer_name].rename(columns=self.headers_ar)
+            
+            path, _ = QFileDialog.getSaveFileName(self, "تصدير عميل", f"{customer_name}.xlsx", "Excel files (*.xlsx)")
+            if path:
+                customer_df.to_excel(path, index=False)
+                QMessageBox.information(
+                    self,
+                    "✅ تصدير ناجح",
+                    f"تم إنشاء ملف إكسل مخصص للعميل '{customer_name}' بنجاح."
+                )
+                self.set_status(f"تم تصدير بيانات العميل '{customer_name}' بنجاح.")
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في التصدير",
+                f"فشل تصدير البيانات:\n\n{str(e)}"
+            )
+            self.set_status(f"خطأ في التصدير: {str(e)}")
 
     def export_all_customers_unified_excel(self):
         all_sales_df = db.get_sales()
@@ -464,22 +550,30 @@ class SalesApp(QMainWindow):
                 })
             summary_df = pd.DataFrame(summary_data)
 
+            # حذف الملف إذا كان موجوداً
             if os.path.exists(path):
                 try:
                     os.remove(path)
                 except OSError:
-                    QMessageBox.critical(self, "ملف مفتوح", "برجاء إغلاق ملف الإكسل الموحد أولاً قبل محاولة تحديثه.")
+                    QMessageBox.critical(
+                        self,
+                        "❌ ملف مفتوح",
+                        "برجاء إغلاق ملف الإكسل الموحد أولاً قبل محاولة تحديثه."
+                    )
+                    self.set_status("فشل التصدير: الملف مفتوح في برنامج آخر.")
                     return
 
+            # إنشاء ملف Excel
             with pd.ExcelWriter(path, engine="openpyxl") as writer:
                 summary_df.to_excel(writer, sheet_name="مختصر العملاء", index=False)
                 for customer_name, group in grouped_all:
                     safe_sheet_name = "".join(c for c in str(customer_name) if c.isalnum() or c in (" ", "_", "-"))[:30].strip()
                     if not safe_sheet_name:
-                        safe_sheet_name = f"عميل"
+                        safe_sheet_name = "عميل"
                     detailed_df = group.rename(columns=self.headers_ar)
                     detailed_df.to_excel(writer, sheet_name=safe_sheet_name, index=False)
 
+            # تنسيق الملف
             wb = load_workbook(path)
             header_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
             header_font = XlFont(name="Calibri", size=14, bold=True, color="000000")
@@ -512,14 +606,33 @@ class SalesApp(QMainWindow):
             for row_idx in range(2, ws_summary.max_row + 1):
                 cell = ws_summary.cell(row=row_idx, column=1)
                 customer_sheet_name = "".join(c for c in str(cell.value) if c.isalnum() or c in (" ", "_", "-"))[:30].strip()
-                cell.hyperlink = f"#'{customer_sheet_name}'!A1"
-                cell.font = XlFont(color="0000FF", underline="single", name="Calibri", size=12, bold=True)
+                if customer_sheet_name:
+                    cell.hyperlink = f"#'{customer_sheet_name}'!A1"
+                    cell.font = XlFont(color="0000FF", underline="single", name="Calibri", size=12, bold=True)
             
             wb.save(path)
-            QMessageBox.information(self, "عملية ناجحة", "تم تحديث دفتر الأستاذ الموحد وتنسيقه بالخلفية البيضاء الكلاسيكية والخطوط السوداء العريضة والروابط بنجاح!")
+            QMessageBox.information(
+                self,
+                "✅ عملية ناجحة",
+                f"تم تحديث دفتر الأستاذ الموحد بنجاح!\n\nالموقع: {path}"
+            )
             self.set_status("تم استخراج وتنسيق ملف السجل الموحد بنجاح.")
+            
+        except PermissionError:
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في الأذونات",
+                "لا توجد أذونات كافية لإنشاء الملف. تأكد من وجود صلاحيات الكتابة."
+            )
+            self.set_status("خطأ: لا توجد أذونات كافية للكتابة.")
+            
         except Exception as e:
-            QMessageBox.critical(self, "خطأ في التصدير", f"فشلت العملية الحسابية بسبب: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ خطأ في التصدير",
+                f"فشلت عملية التصدير:\n\n{str(e)}"
+            )
+            self.set_status(f"خطأ في التصدير: {str(e)}")
 
 
 def main():
