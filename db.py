@@ -63,9 +63,13 @@ def add_sale(customer, item, qty, price, total, sale_date, db_path: Path = DB_FI
 
 
 def get_sales(db_path: Path = DB_FILENAME):
-    with sqlite3.connect(db_path) as conn:
-        df = pd.read_sql_query("SELECT * FROM sales ORDER BY created_at DESC", conn)
-    return df
+    try:
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql_query("SELECT * FROM sales ORDER BY created_at DESC", conn)
+        return df
+    except Exception as e:
+        print(f"خطأ في جلب البيانات: {e}")
+        return pd.DataFrame()
 
 
 def delete_sale(sale_id, db_path: Path = DB_FILENAME):
@@ -75,3 +79,16 @@ def delete_sale(sale_id, db_path: Path = DB_FILENAME):
         conn.commit()
         rows = cursor.rowcount
     return rows
+
+
+def clear_all_data(db_path: Path = DB_FILENAME):
+    """تفريغ جميع البيانات من قاعدة البيانات"""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sales")
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"خطأ في تفريغ قاعدة البيانات: {e}")
+        return False
